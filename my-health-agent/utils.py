@@ -177,7 +177,7 @@ async def call_agent_async(runner, user_id, session_id, query: str):
                 print(chunk.content, end="", flush=True)
 
             if chunk.is_final_response and chunk.content:
-                 final_response_text = process_agent_response(chunk)
+                 final_response_text = await process_agent_response(chunk)
                  
         print("\n")
 
