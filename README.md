@@ -31,6 +31,15 @@ Follow these instructions to get a copy of the project up and running on your lo
     ```bash
     pip install -r requirements.txt
     ```
+    
+5. **.env Configuration for Vertex AI
+Create a file named .env in the root directory of your project and add the following lines:**
+    ```bash
+    # If using Google Cloud services (including Vertex AI), set the following environment variables..
+    GOOGLE_GENAI_USE_VERTEXAI=TRUE
+    GOOGLE_CLOUD_PROJECT=your-google-cloud-project-id  # Replace with your actual Google Cloud Project ID
+    GOOGLE_CLOUD_LOCATION=asia-south1                 # Replace with your desired Vertex AI region (e.g., us-central1, europe-west1).
+    ```
 
 ### Running the Application
 
