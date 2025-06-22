@@ -1,15 +1,19 @@
+# my-health-agent/orchestrator_agent/sub_agents/appointment_agent/database.py
 import sqlite3
 import json
 from pathlib import Path
 from faker import Faker
 import random
+from datetime import date, timedelta
 
+# Define the path for the database in the same directory
 DB_FILE = Path(__file__).parent / "doctors.db"
 
 def create_connection():
     """Create a database connection to the SQLite database."""
     conn = None
     try:
+        # check_same_thread=False is needed for multi-threaded access if your app grows
         conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     except sqlite3.Error as e:
         print(e)
@@ -53,11 +57,10 @@ def generate_and_populate_doctors(conn, count=1000):
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM doctors")
     if cursor.fetchone()[0] > 0:
-        print("Doctor database already populated.")
         return
 
-    print(f"Database is empty. Generating {count} new doctor records...")
-    fake = Faker('en_IN') # Use Indian locale for names/locations
+    print(f"Doctor database is empty. Generating {count} new doctor records...")
+    fake = Faker('en_IN')
 
     specializations = ['Cardiologist', 'Neurologist', 'Dermatologist', 'Orthopedic Surgeon', 'General Physician', 'Pediatrician', 'Oncologist', 'Endocrinologist', 'Gastroenterologist']
     locations = ['Mumbai', 'Delhi', 'Bangalore', 'Chennai', 'Kolkata', 'Hyderabad', 'Pune', 'Ahmedabad']
@@ -73,7 +76,6 @@ def generate_and_populate_doctors(conn, count=1000):
         hosp = f"{random.choice(hospitals)}, {loc}"
         fee = random.randint(8, 25) * 100
         
-        # Generate visiting hours
         start_hour = random.randint(9, 14)
         end_hour = start_hour + random.randint(2, 4)
         visiting_days = sorted(random.sample(days, k=random.randint(3, 5)))
@@ -87,6 +89,21 @@ def generate_and_populate_doctors(conn, count=1000):
     """, doctors_data)
     conn.commit()
     print(f"Successfully populated database with {count} doctors.")
+
+
+def _parse_date(date_str: str) -> str:
+    """Converts natural language dates like 'today' or 'tomorrow' to YYYY-MM-DD format."""
+    if not isinstance(date_str, str):
+        return str(date_str)
+        
+    today = date.today()
+    if date_str.lower() == 'today':
+        return today.strftime('%Y-%m-%d')
+    if date_str.lower() == 'tomorrow':
+        tomorrow = today + timedelta(days=1)
+        return tomorrow.strftime('%Y-%m-%d')
+    return date_str
+
 
 def _find_doctors_in_db(specialization: str, location: str):
     """Searches for doctors based on medical specialization and location. For example, 'find a physician in Mumbai'. Returns a list of the top 5 matching doctors with their details.
@@ -130,12 +147,12 @@ def _find_doctors_in_db(specialization: str, location: str):
     return json.dumps(results, indent=2)
 
 def _book_appointment_in_db(doctor_id: int, patient_name: str, date: str, time: str):
-    """Books an appointment with a specific doctor for a user.
+    """Books an appointment with a specific doctor for a user after parsing the date.
 
     Args:
         doctor_id: The unique ID of the doctor, which is found using the find_doctors tool.
         patient_name: The full name of the patient for whom the appointment is booked.
-        date: The desired date for the appointment in 'YYYY-MM-DD' or natural language format (e.g., 'tomorrow').
+        date: The desired date for the appointment in 'YYYY-MM-DD' or natural language format (e.g., 'today').
         time: The desired time for the appointment (e.g., '10 AM', '15:00').
     """
     conn = create_connection()
@@ -152,10 +169,11 @@ def _book_appointment_in_db(doctor_id: int, patient_name: str, date: str, time: 
             return f"Error: No doctor found with ID {doctor_id}."
         
         doctor_name = doctor[0]
+        parsed_date = _parse_date(date)
 
         cursor.execute(
             "INSERT INTO appointments (doctor_id, patient_name, appointment_date, appointment_time) VALUES (?, ?, ?, ?)",
-            (doctor_id, patient_name, date, time)
+            (doctor_id, patient_name, parsed_date, time)
         )
         conn.commit()
         appointment_id = cursor.lastrowid
@@ -167,12 +185,49 @@ def _book_appointment_in_db(doctor_id: int, patient_name: str, date: str, time: 
             "appointment_id": appointment_id,
             "doctor_name": doctor_name,
             "patient_name": patient_name,
-            "date": date,
+            "date": parsed_date,
             "time": time
         })
     except sqlite3.Error as e:
         conn.close()
         return f"Error: Could not book appointment. Reason: {e}"
+
+def _get_appointments_for_user_db(patient_name: str):
+    """Views all past and upcoming appointments for a specific patient, including doctor's fee.
+
+    Args:
+        patient_name: The full name of the patient to retrieve appointments for.
+    """
+    conn = create_connection()
+    if not conn:
+        return "Error: Could not connect to the database."
+
+    cursor = conn.cursor()
+    query = """
+        SELECT d.name, d.hospital_name, a.appointment_date, a.appointment_time, d.consultation_fee
+        FROM appointments a
+        JOIN doctors d ON a.doctor_id = d.id
+        WHERE a.patient_name = ?
+        ORDER BY a.appointment_date, a.appointment_time
+    """
+    cursor.execute(query, (patient_name,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return f"No appointments found for {patient_name}."
+
+    appointments = []
+    for row in rows:
+        appointments.append({
+            "doctor_name": row[0],
+            "hospital": row[1],
+            "date": row[2],
+            "time": row[3],
+            "consultation_fee": row[4]
+        })
+    
+    return json.dumps(appointments, indent=2)
 
 def initialize_database():
     """Initializes the database, creating tables and populating if needed."""
@@ -180,8 +235,8 @@ def initialize_database():
     conn = create_connection()
     if conn is not None:
         create_tables(conn)
-        generate_and_populate_doctors(conn, 1000) # Generate 1000 doctors
+        generate_and_populate_doctors(conn, 1000)
         conn.close()
-        print("Database ready.")
+        print("Doctor database ready.")
     else:
         print("Error! cannot create the database connection.")
