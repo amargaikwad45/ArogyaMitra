@@ -1,6 +1,5 @@
 from google.adk.agents import Agent
 
-# Import the sub-agents we just defined
 from .sub_agents.symptom_bot.agent import symptom_bot
 from .sub_agents.med_coach.agent import med_coach
 from .sub_agents.faq_bot.agent import faq_bot
