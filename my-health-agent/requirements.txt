@@ -5,3 +5,5 @@ litellm==1.66.3
 google-generativeai==0.8.5
 python-dotenv==1.1.0
 Faker==25.2.0
+deprecated
+streamlit==1.28.0
