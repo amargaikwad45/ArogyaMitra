@@ -18,15 +18,10 @@ from utils import add_user_query_to_history, call_agent_async
 
 load_dotenv()
 
-def onboard_new_user():
-    """Interactively gathers profile information from a new user."""
-    print("\n--- New User Registration ---")
-    print("Let's set up your health profile.")
-
-    user_name = input("👤 What is your full name? > ").strip()
-    if not user_name:
-        print("Name cannot be empty.")
-        return None, None
+# MODIFIED: This function now takes the username as an argument and gathers only the remaining details.
+def gather_health_profile(user_name: str):
+    """Interactively gathers the rest of the health profile after name/password are set."""
+    print("\n--- Please Complete Your Health Profile ---")
     
     age_input = input("🎂 What is your age? > ").strip()
     age = int(age_input) if age_input.isdigit() else None
@@ -47,14 +42,44 @@ def onboard_new_user():
 
     user_profile_state = {
         "user_context": {
-            "user_name": user_name,
+            "user_name": user_name, # Uses the name passed into the function
             "personalInfo": {"age": age, "sex": sex},
             "diagnosedConditions": diagnosed_conditions,
             "currentMedications": current_medications,
         },
         "interaction_history": [],
     }
-    return user_name, user_profile_state
+    return user_profile_state
+
+def display_user_profile(user_state):
+    """Prints a formatted summary of the user's profile from the state."""
+    print("\n--- Your Health Profile ---")
+    context = user_state.get("user_context", {})
+    if not context:
+        print("Could not load profile details.")
+        return
+
+    print(f"👤 Name: {context.get('user_name', 'N/A')}")
+    personal_info = context.get('personalInfo', {})
+    age = personal_info.get('age', 'N/A')
+    sex = personal_info.get('sex', 'N/A')
+    print(f"📋 Details: Age: {age}, Sex: {sex}")
+
+    conditions = context.get('diagnosedConditions', [])
+    if conditions:
+        print(f"🩺 Diagnosed Conditions: {', '.join(conditions)}")
+    else:
+        print("🩺 Diagnosed Conditions: None listed.")
+
+    meds = context.get('currentMedications', [])
+    if meds:
+        print("💊 Current Medications:")
+        for med in meds:
+            print(f"   - {med.get('name', 'N/A')} ({med.get('dosage', 'N/A')})")
+    else:
+        print("💊 Current Medications: None listed.")
+    print("---------------------------\n")
+
 
 def login_flow():
     """Handles the login process for an existing user."""
@@ -65,31 +90,47 @@ def login_flow():
     profile_data, stored_hash = get_user(username)
     
     if profile_data and verify_password(stored_hash, password):
-        print("\n✅ Login successful! Loading your profile.")
-        print(f"   Name: {profile_data['user_context']['user_name']}")
-        print(f"   Conditions: {', '.join(profile_data['user_context']['diagnosedConditions'])}")
+        print("\n✅ Login successful!")
         return username, profile_data
     else:
         print("\n❌ Login failed. Please check your name or password.")
         return None, None
 
+# MODIFIED: This function now follows the Name -> Password -> Details flow.
 def register_flow():
     """Handles the registration process for a new user."""
-    username, profile_data = onboard_new_user()
-    if not username:
-        return None, None
-
-    # Generate a random 4-digit password
-    password = str(random.randint(1000, 9999))
+    print("\n--- New User Registration ---")
     
+    # Step 1: Get the username
+    username = input("👤 What is your full name? > ").strip()
+    if not username:
+        print("Name cannot be empty.")
+        return None, None
+        
+    # Step 2: Get and confirm the password
+    password = ""
+    while True:
+        p1 = getpass.getpass("🔑 Please choose a 4-digit password: > ").strip()
+        if not (p1.isdigit() and len(p1) == 4):
+            print("   Invalid input. Password must be exactly 4 digits.")
+            continue
+
+        p2 = getpass.getpass("🔑 Please confirm your password: > ").strip()
+        if p1 == p2:
+            password = p1
+            break
+        else:
+            print("   Passwords do not match. Please try again.")
+    
+    # Step 3: Get the rest of the health profile
+    profile_data = gather_health_profile(username)
+    
+    # Step 4: Save everything to the database
     if add_user(username, password, profile_data):
-        print("\n✅ Registration successful!")
-        print("="*40)
-        print(f"  IMPORTANT: Your 4-digit password is: {password}")
-        print("  Please save it. You will need it to log in next time.")
-        print("="*40)
+        print("\n✅ Registration successful! Your profile has been saved.")
         return username, profile_data
     else:
+        # add_user prints its own error message (e.g., username taken)
         return None, None
 
 async def main_async():
@@ -100,6 +141,7 @@ async def main_async():
     user_state = None
     username = None
     
+    # Loop until a user is successfully logged in or registered
     while not user_state:
         choice = input("\nWelcome to Arogya Mitra!\n1. Login\n2. Register\n3. Exit\n> ").strip()
         if choice == '1':
@@ -111,6 +153,9 @@ async def main_async():
         else:
             print("Invalid choice. Please enter 1, 2, or 3.")
 
+    # Display the user's profile right after successful login/registration.
+    display_user_profile(user_state)
+
     APP_NAME = "Arogya Mitra"
     # Create a safe and consistent USER_ID from the username
     USER_ID = re.sub(r'\W+', '_', username).lower()
@@ -121,11 +166,11 @@ async def main_async():
 
     if list_sessions_response.sessions:
         session_id = list_sessions_response.sessions[0].id
-        print(f"\nContinuing your previous session: {session_id}")
+        print(f"Continuing your previous chat session...")
     else:
         session_id = str(uuid.uuid4())
         session_service.create_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id, state=user_state)
-        print(f"\nCreated a new chat session for you.")
+        print(f"Created a new chat session for you.")
 
     runner = Runner(agent=orchestrator_agent, app_name=APP_NAME, session_service=session_service)
     
